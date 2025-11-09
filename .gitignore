@@ -1,0 +1,9 @@
+minio-data/
+
+redis-data/
+
+.env
+
+node_modules/
+
+downloads/
