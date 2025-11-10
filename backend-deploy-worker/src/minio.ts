@@ -1,13 +1,15 @@
 import { 
     S3Client, 
     GetObjectCommand, 
-    ListObjectsV2Command, 
+    ListObjectsV2Command,
+    PutObjectCommand, 
     type ListObjectsV2CommandOutput, 
-    ListBucketsCommand
 } from '@aws-sdk/client-s3'
 import { mkdir, writeFile } from 'fs/promises'
 import { config } from "dotenv";
 import { dirname } from 'path';
+import { glob } from 'glob';
+import { createReadStream } from 'fs';
 
 config()
 
@@ -31,6 +33,11 @@ if (!MINIO_PASSWORD) {
 const MINIO_CLONE_BUCKET_NAME = process.env.MINIO_CLONE_BUCKET_NAME
 if (!MINIO_CLONE_BUCKET_NAME) {
     throw new Error("MINIO_CLONE_BUCKET_NAME not set in environment variables")
+}
+
+const MINIO_BUILD_BUCKET_NAME = process.env.MINIO_BUILD_BUCKET_NAME
+if (!MINIO_BUILD_BUCKET_NAME) {
+    throw new Error("MINIO_BUILD_BUCKET_NAME not set in environment variables")
 }
 
 const s3 = new S3Client({
@@ -64,8 +71,6 @@ async function getFilesWithKey(id: string) {
         })
         
         const response = await s3.send(listCommand) as ListObjectsV2CommandOutput
-        console.log("Response:\n", response)
-        console.log("Response contents: \n", response.Contents)
         var keySet: (string | undefined)[] = response.Contents?.map((obj) => obj.Key).filter(Boolean) ?? []
         console.log("Key set:\n", keySet)
         keys.push(...keySet.filter((k): k is string => typeof k === "string"))
@@ -93,4 +98,29 @@ export async function downloadMinIOFolder(id: string) {
             console.log(`Saved ${key}`)
         })
     )
+}
+
+export async function uploadFolder(id: string) {
+    const files = await glob(`./downloads/${id}/dist/**/*`, { nodir: true })
+    console.log(files)
+
+    files.forEach(async (file) => {
+        try {
+            const split: string[] = file.split(id)
+            const fKey = split[split.length - 1] ?? file
+            const fileKey = fKey.replace(/\\/g, "/");
+            const readStream = createReadStream(file)
+
+            const putCommand = new PutObjectCommand({
+                Bucket: MINIO_BUILD_BUCKET_NAME,
+                Body: readStream,
+                Key: id + fileKey 
+            })
+
+            await s3.send(putCommand)
+            console.log("Uploaded built file with key: " + fileKey)
+        } catch (e: any) {
+            console.log(`Error while uploading files: ${e}`)
+        }
+    })
 }

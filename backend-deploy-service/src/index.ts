@@ -1,7 +1,5 @@
 import { createClient } from "redis";
 import { config } from "dotenv";
-import { downloadMinIOFolder } from "./minio.js";
-import { build } from "./build.js";
 
 config()
 
@@ -22,6 +20,10 @@ async function connectRedis() {
 }
 await connectRedis()
 
+async function setStaus(id: string, status: string) {
+    subscriber.hSet(REDIS_STATUS_QUEUE, id, status)
+}
+
 async function sleep(timeout: number) {
     return new Promise((resolve) => { setTimeout(resolve, timeout) })
 }
@@ -32,11 +34,33 @@ async function main() {
         if (!value?.element) {
             break
         }
-        console.log(value?.element)
+        const id: string = value.element
+        console.log(id)
         await sleep(5000)
-        await downloadMinIOFolder(value?.element)
-        await sleep(5000)
-        build(value?.element)
+
+        const response = await fetch('http://localhost:3010/api/services/workers/deploy', {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                id: id
+            })
+        });
+
+        if (response.body === null) {
+            console.log("Recieved malformed response from backend.")
+            return;
+        }
+        const jsonResponse = await response.json()
+        const status = await jsonResponse.status ?? ""
+        if (status === "success") {
+            console.log("Successfully built.")
+        } else {
+            console.log("Build failed.")
+        }
+
+        setStaus(value?.element, "Deployed")
     }
 }
 
